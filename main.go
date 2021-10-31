@@ -4,29 +4,21 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"io"
 	"net/http"
 	"runtime"
 	"unsafe"
 
+	"go-pprof-cpu-heap-example/model"
+
 	_ "net/http/pprof"
+
+	"github.com/mailru/easyjson"
 )
 
 func main() {
 	http.HandleFunc("/foo", foo)
 	http.ListenAndServe("localhost:6060", nil)
-}
-
-type FooItem struct {
-	StrA string `json:"srt_a"`
-	StrB string `json:"str_b"`
-}
-
-type FooReq []FooItem
-
-type FooRes struct {
-	Hashes []string `json:"hashes"`
 }
 
 type BufFreeList struct {
@@ -60,20 +52,20 @@ func NewBufFreeList(max int) *BufFreeList {
 var bufFreeList = NewBufFreeList(runtime.NumCPU())
 
 type FooReqFreeList struct {
-	ch chan *FooReq
+	ch chan *model.FooReq
 }
 
-func (p *FooReqFreeList) Get() *FooReq {
+func (p *FooReqFreeList) Get() *model.FooReq {
 	select {
 	case b := <-p.ch:
 		return b
 	default:
-		fooReq := FooReq(make([]FooItem, 0, 100))
+		fooReq := model.FooReq(make([]model.FooItem, 0, 100))
 		return &fooReq
 	}
 }
 
-func (p *FooReqFreeList) Put(fooReq *FooReq) {
+func (p *FooReqFreeList) Put(fooReq *model.FooReq) {
 	fooReqSlace := (*fooReq)[:0]
 	select {
 	case p.ch <- &fooReqSlace: // ok
@@ -82,9 +74,9 @@ func (p *FooReqFreeList) Put(fooReq *FooReq) {
 }
 
 func NewFooReqFreeList(max int) *FooReqFreeList {
-	c := make(chan *FooReq, max)
+	c := make(chan *model.FooReq, max)
 	for i := 0; i < max; i++ {
-		fooReq := FooReq(make([]FooItem, 0, 100))
+		fooReq := model.FooReq(make([]model.FooItem, 0, 100))
 		c <- &fooReq
 	}
 	return &FooReqFreeList{ch: c}
@@ -108,7 +100,7 @@ func foo(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		fooReqFreeList.Put(fooReq)
 	}()
-	if err := json.Unmarshal(buf.Bytes(), fooReq); err != nil {
+	if err := easyjson.Unmarshal(buf.Bytes(), fooReq); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -130,9 +122,9 @@ func foo(w http.ResponseWriter, r *http.Request) {
 		hashes = append(hashes, bytesToString(buf.Bytes()))
 	}
 
-	fooRes := FooRes{Hashes: hashes}
+	fooRes := model.FooRes{Hashes: hashes}
 
-	b, err := json.Marshal(fooRes)
+	b, err := easyjson.Marshal(fooRes)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
