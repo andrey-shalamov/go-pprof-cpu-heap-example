@@ -111,13 +111,24 @@ func foo(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	var hashes []string
+
+	hashes := make([]string, 0, len(*fooReq))
+	var sha256Buf [sha256.Size]byte
+	sha := sha256.New()
+	encodedLen := base64.StdEncoding.EncodedLen(sha256.Size)
+	buf.Reset()
+	buf.Grow(encodedLen)
+	for i := 0; i < encodedLen; i++ {
+		buf.WriteByte(0)
+	}
 	for _, foo := range *fooReq {
-		sha := sha256.New()
+		sha.Reset()
 		sha.Write([]byte(foo.StrA))
 		sha.Write([]byte(foo.StrB))
-		hashes = append(hashes, base64.StdEncoding.EncodeToString(sha.Sum(nil)))
+		base64.StdEncoding.Encode(buf.Bytes(), sha.Sum(sha256Buf[:0]))
+		hashes = append(hashes, buf.String())
 	}
+
 	fooRes := FooRes{Hashes: hashes}
 
 	b, err := json.Marshal(fooRes)
