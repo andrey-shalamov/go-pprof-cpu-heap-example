@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
+	"sync"
 
 	_ "net/http/pprof"
 )
@@ -26,14 +28,26 @@ type FooRes struct {
 	Hashes []string `json:"hashes"`
 }
 
+var bufPool = sync.Pool{
+	New: func() interface{} {
+		return bytes.NewBuffer(make([]byte, 0, 1024))
+	},
+}
+
 func foo(w http.ResponseWriter, r *http.Request) {
-	b, err := ioutil.ReadAll(r.Body)
+	buf := bufPool.Get().(*bytes.Buffer)
+	defer func() {
+		buf.Reset()
+		bufPool.Put(buf)
+	}()
+	_, err := io.Copy(buf, r.Body)
+	r.Body.Close()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	var fooReq FooReq
-	if err := json.Unmarshal(b, &fooReq); err != nil {
+	if err := json.Unmarshal(buf.Bytes(), &fooReq); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -46,7 +60,7 @@ func foo(w http.ResponseWriter, r *http.Request) {
 	}
 	fooRes := FooRes{Hashes: hashes}
 
-	b, err = json.Marshal(fooRes)
+	b, err := json.Marshal(fooRes)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
