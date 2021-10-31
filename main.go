@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"sync"
+	"runtime"
 
 	_ "net/http/pprof"
 )
@@ -28,17 +28,41 @@ type FooRes struct {
 	Hashes []string `json:"hashes"`
 }
 
-var bufPool = sync.Pool{
-	New: func() interface{} {
-		return bytes.NewBuffer(make([]byte, 0, 1024*1024))
-	},
+type BufFreeList struct {
+	ch chan *bytes.Buffer
 }
 
+func (p *BufFreeList) Get() *bytes.Buffer {
+	select {
+	case b := <-p.ch:
+		return b
+	default:
+		return bytes.NewBuffer(make([]byte, 0, 1024*1024))
+	}
+}
+
+func (p *BufFreeList) Put(b *bytes.Buffer) {
+	select {
+	case p.ch <- b: // ok
+	default: // drop
+	}
+}
+
+func NewBufFreeList(max int) *BufFreeList {
+	c := make(chan *bytes.Buffer, max)
+	for i := 0; i < max; i++ {
+		c <- bytes.NewBuffer(make([]byte, 0, 1024*1024))
+	}
+	return &BufFreeList{ch: c}
+}
+
+var bufFreeList = NewBufFreeList(runtime.NumCPU())
+
 func foo(w http.ResponseWriter, r *http.Request) {
-	buf := bufPool.Get().(*bytes.Buffer)
+	buf := bufFreeList.Get()
 	defer func() {
 		buf.Reset()
-		bufPool.Put(buf)
+		bufFreeList.Put(buf)
 	}()
 	_, err := io.Copy(buf, r.Body)
 	r.Body.Close()
