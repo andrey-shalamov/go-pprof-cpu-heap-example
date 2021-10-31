@@ -58,6 +58,39 @@ func NewBufFreeList(max int) *BufFreeList {
 
 var bufFreeList = NewBufFreeList(runtime.NumCPU())
 
+type FooReqFreeList struct {
+	ch chan *FooReq
+}
+
+func (p *FooReqFreeList) Get() *FooReq {
+	select {
+	case b := <-p.ch:
+		return b
+	default:
+		fooReq := FooReq(make([]FooItem, 0, 100))
+		return &fooReq
+	}
+}
+
+func (p *FooReqFreeList) Put(fooReq *FooReq) {
+	fooReqSlace := (*fooReq)[:0]
+	select {
+	case p.ch <- &fooReqSlace: // ok
+	default: // drop
+	}
+}
+
+func NewFooReqFreeList(max int) *FooReqFreeList {
+	c := make(chan *FooReq, max)
+	for i := 0; i < max; i++ {
+		fooReq := FooReq(make([]FooItem, 0, 100))
+		c <- &fooReq
+	}
+	return &FooReqFreeList{ch: c}
+}
+
+var fooReqFreeList = NewFooReqFreeList(runtime.NumCPU())
+
 func foo(w http.ResponseWriter, r *http.Request) {
 	buf := bufFreeList.Get()
 	defer func() {
@@ -70,13 +103,16 @@ func foo(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	var fooReq FooReq
-	if err := json.Unmarshal(buf.Bytes(), &fooReq); err != nil {
+	fooReq := fooReqFreeList.Get()
+	defer func() {
+		fooReqFreeList.Put(fooReq)
+	}()
+	if err := json.Unmarshal(buf.Bytes(), fooReq); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	var hashes []string
-	for _, foo := range fooReq {
+	for _, foo := range *fooReq {
 		sha := sha256.New()
 		sha.Write([]byte(foo.StrA))
 		sha.Write([]byte(foo.StrB))
