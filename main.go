@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"runtime"
+	"unsafe"
 
 	_ "net/http/pprof"
 )
@@ -123,10 +124,10 @@ func foo(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, foo := range *fooReq {
 		sha.Reset()
-		sha.Write([]byte(foo.StrA))
-		sha.Write([]byte(foo.StrB))
+		sha.Write(stringToBytes(&foo.StrA))
+		sha.Write(stringToBytes(&foo.StrB))
 		base64.StdEncoding.Encode(buf.Bytes(), sha.Sum(sha256Buf[:0]))
-		hashes = append(hashes, buf.String())
+		hashes = append(hashes, bytesToString(buf.Bytes()))
 	}
 
 	fooRes := FooRes{Hashes: hashes}
@@ -137,4 +138,12 @@ func foo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Write(b)
+}
+
+func bytesToString(b []byte) string {
+	return *(*string)(unsafe.Pointer(&b))
+}
+
+func stringToBytes(s *string) []byte {
+	return *(*[]byte)(unsafe.Pointer(s))
 }
