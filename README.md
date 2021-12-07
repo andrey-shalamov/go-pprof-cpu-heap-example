@@ -433,7 +433,6 @@ var bufPool = sync.Pool{
 
 ```go
 func foo(w http.ResponseWriter, r *http.Request) {
-	b, err := ioutil.ReadAll(r.Body)
 	buf := bufPool.Get().(*bytes.Buffer)
 	defer func() {
 		buf.Reset()
@@ -732,7 +731,7 @@ func stringToBytes(s *string) []byte {
 }
 ```
 
-Тут есть некоторое ограничение. В случае bytesToString это полностью валидная операция, а в случае stringToByte возвращаемые слайсы можно использовать только на чтение, так как параметр capacity не будет проинициализирован. Это можно было бы разрешить с помощью пакета reflect, но в нашем случае обойдемся без него. Просто вставим функции туда, где происходит конвертация:
+Тут есть некоторое ограничение. В случае bytesToString это валидная операция только если мы воспользуемся строкой до изменения буфера, на который она ссылается, т.е. нам не подходит этот метод, а в случае stringToByte возвращаемые слайсы можно использовать только на чтение, так как параметр capacity не будет проинициализирован. Это можно было бы разрешить с помощью пакета reflect, но в нашем случае обойдемся без него:
 
 ```go
 for _, foo := range *fooReq {
@@ -740,7 +739,7 @@ for _, foo := range *fooReq {
 		sha.Write(stringToBytes(&foo.StrA))
 		sha.Write(stringToBytes(&foo.StrB))
 		base64.StdEncoding.Encode(buf.Bytes(), sha.Sum(sha256Buf[:0]))
-		hashes = append(hashes, bytesToString(buf.Bytes()))
+		hashes = append(hashes, buf.String())
 	}
 ```
 
@@ -748,11 +747,11 @@ for _, foo := range *fooReq {
 
 | Тест               | Было, rps | Стало, rps    |
 |--------------------|-----------|---------------|
-| hey -n 10000 -c 1  | 596.2832  | **616.7721**  |
-| hey -n 10000 -c 30 | 2536.7017 | **2618.8195** |
+| hey -n 10000 -c 1  | 596.2832  | **609.2315**  |
+| hey -n 10000 -c 30 | 2536.7017 | **2583.3775** |
 
 Мы получили прирост по rps в обоих случаях.
-Проверяем, что память здесь больше не выделяется:
+Проверяем потребление памяти:
 
 ```shell
          .          .    115:
@@ -770,7 +769,7 @@ for _, foo := range *fooReq {
          .          .    127:           sha.Write(stringToBytes(&foo.StrA))
          .          .    128:           sha.Write(stringToBytes(&foo.StrB))
          .          .    129:           base64.StdEncoding.Encode(buf.Bytes(), sha.Sum(sha256Buf[:0]))
-         .          .    130:           hashes = append(hashes, bytesToString(buf.Bytes()))
+         .   149.51MB    130:           hashes = append(hashes, buf.String())
          .          .    131:   }
          .          .    132:
          .          .    133:   fooRes := FooRes{Hashes: hashes}

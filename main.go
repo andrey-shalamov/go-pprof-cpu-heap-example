@@ -119,7 +119,7 @@ func foo(w http.ResponseWriter, r *http.Request) {
 		sha.Write(stringToBytes(&foo.StrA))
 		sha.Write(stringToBytes(&foo.StrB))
 		base64.StdEncoding.Encode(buf.Bytes(), sha.Sum(sha256Buf[:0]))
-		hashes = append(hashes, bytesToString(buf.Bytes()))
+		hashes = append(hashes, buf.String())
 	}
 
 	fooRes := model.FooRes{Hashes: hashes}
